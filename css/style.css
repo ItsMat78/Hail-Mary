@@ -16,7 +16,7 @@
      rather than continuous so the headline glow does not repaint 60x/sec. */
   --fringe: 0;
 
-  --font-display: 'Michroma', 'Eurostile', 'Bahnschrift', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Hail Mary Sans', 'Michroma', 'Bahnschrift', ui-sans-serif, system-ui, sans-serif;
   --font-body: 'Saira', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
 
   --gutter: clamp(1.25rem, 7vw, 8rem);
@@ -104,22 +104,24 @@ body {
   margin: 0 auto;
   padding-inline: var(--gutter);
   display: grid;
-  grid-template-columns: minmax(0, 58ch) minmax(0, 24ch);
+  grid-template-columns: minmax(0, 58ch) minmax(0, 28ch);
   column-gap: clamp(2rem, 5vw, 5rem);
   align-items: start;
 }
 
-/* The sky gets bright. Text needs its own floor to sit on. */
-.plate__inner::before {
+/* The sky gets bright. Text needs its own floor to sit on.
+
+   This sits on .plate rather than .plate__inner: the inner box is narrower
+   than the viewport, so a gradient wide enough to cover the text ran past its
+   edge and was clipped into a hard vertical seam down the page. .plate is
+   full-bleed, so the falloff has room to finish. */
+.plate:not(.plate--hero):not(.plate--foot)::before {
   content: '';
   position: absolute;
-  /* No negative horizontal inset — it pushed past the viewport and left the
-     document wider than the screen. The gradient is already transparent at
-     these edges, so clipping to the container costs nothing. */
   inset: -8vh 0;
   z-index: -1;
-  background: radial-gradient(58% 62% at 34% 50%,
-              rgb(3 5 12 / 0.86), rgb(3 5 12 / 0.60) 48%, transparent 78%);
+  background: radial-gradient(44% 60% at 36% 50%,
+              rgb(3 5 12 / 0.86), rgb(3 5 12 / 0.58) 46%, transparent 76%);
   pointer-events: none;
 }
 
@@ -153,7 +155,7 @@ body {
 
 .eyebrow {
   font-family: var(--font-display);
-  font-size: clamp(0.56rem, 0.46rem + 0.5vw, 0.8rem);
+  font-size: clamp(0.5rem, 0.42rem + 0.42vw, 0.7rem);
   letter-spacing: 0.62em;
   text-indent: 0.62em;
   text-transform: uppercase;
@@ -168,8 +170,8 @@ body {
   margin: 0;
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: clamp(2.05rem, 11.4vw, 9rem);
-  line-height: 0.98;
+  font-size: clamp(1.6rem, 7.6vw, 6.6rem);
+  line-height: 1.06;
   letter-spacing: 0.09em;
   text-indent: 0.09em;
   color: #fff;
@@ -179,50 +181,14 @@ body {
 
 /* Bloom, plus the colour fringing, in one shadow list. --fringe only
    changes in steps, so this does not repaint on every frame. */
-.ch {
+.wordmark {
   text-shadow:
     calc(var(--fringe) * 1px) 0 0 rgb(255 42 77 / 0.55),
     calc(var(--fringe) * -1px) 0 0 rgb(0 229 255 / 0.55),
     0 0 6px rgb(255 255 255 / 0.75),
-    0 0 22px rgb(var(--ice) / 0.60),
-    0 0 60px rgb(var(--ice) / 0.42),
-    0 0 130px rgb(var(--c3) / 0.35);
+    0 0 24px rgb(var(--ice) / 0.62),
+    0 0 84px rgb(var(--c3) / 0.42);
 }
-
-/* The A is a hollow triangle, as on the poster. The letter itself lives in
-   an adjacent .sr-only span so the heading still reads as words. */
-.tri {
-  display: inline-block;
-  vertical-align: baseline;
-  width: 0.78em;
-  height: 0.72em;
-}
-
-.tri svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-/* Stroke width is in viewBox units so it scales with the type size —
-   non-scaling-stroke would make the small headings far too heavy. */
-.tri polygon {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 7;
-  stroke-linejoin: miter;
-}
-
-.wordmark .tri {
-  filter:
-    drop-shadow(calc(var(--fringe) * 1px) 0 0 rgb(255 42 77 / 0.55))
-    drop-shadow(calc(var(--fringe) * -1px) 0 0 rgb(0 229 255 / 0.55))
-    drop-shadow(0 0 8px rgb(255 255 255 / 0.7))
-    drop-shadow(0 0 34px rgb(var(--ice) / 0.5));
-}
-
-.wordmark .tri polygon { stroke-width: 5.5; }
 
 .hero__lede {
   max-width: 46ch;
@@ -281,9 +247,11 @@ body {
   margin: 0 0 clamp(1.6rem, 5vh, 3rem);
   font-family: var(--font-display);
   font-weight: 400;
-  font-size: clamp(1.35rem, 0.9rem + 2.4vw, 3.1rem);
-  line-height: 1.24;
+  font-size: clamp(1.15rem, 0.7rem + 1.9vw, 2.6rem);
+  line-height: 1.22;
   letter-spacing: 0.055em;
+  /* Splits a two-line heading evenly instead of stranding one word. */
+  text-wrap: balance;
   color: #fff;
   text-shadow:
     calc(var(--fringe) * 0.6px) 0 0 rgb(255 42 77 / 0.4),
@@ -292,22 +260,6 @@ body {
     0 0 26px rgb(var(--accent) / 0.5),
     0 0 78px rgb(var(--accent) / 0.3);
 }
-
-/* A triangle is an inline-block, so the browser treats each side of it as a
-   line-break opportunity and happily splits IMAGE into IMA / GE. Words that
-   contain one have to hold together explicitly. */
-.head .w { white-space: nowrap; }
-
-.head .tri {
-  width: 0.82em;
-  height: 0.74em;
-  margin-inline: 0.02em;
-  filter:
-    drop-shadow(0 0 6px rgb(255 255 255 / 0.55))
-    drop-shadow(0 0 26px rgb(var(--accent) / 0.5));
-}
-
-.head .tri polygon { stroke-width: 8; }
 
 /* ---------------------------------------------------------------- prose */
 
@@ -326,7 +278,7 @@ body {
 .card {
   grid-column: 2;
   margin: clamp(0.5rem, 4vh, 2.5rem) 0 0;
-  padding: 1.5rem 1.5rem 1.6rem;
+  padding: 1.25rem 1.25rem 1.4rem;
   border: 1px solid rgb(var(--accent) / 0.28);
   border-left: 2px solid rgb(var(--accent) / 0.85);
   background: linear-gradient(180deg, rgb(var(--accent) / 0.07), rgb(3 5 12 / 0.5));
@@ -336,7 +288,7 @@ body {
 .card__figure {
   margin: 0 0 0.7rem;
   font-family: var(--font-display);
-  font-size: clamp(0.95rem, 0.78rem + 0.72vw, 1.32rem);
+  font-size: clamp(0.82rem, 0.68rem + 0.55vw, 1.05rem);
   line-height: 1.25;
   letter-spacing: 0.02em;
   font-variant-numeric: tabular-nums;
@@ -373,7 +325,7 @@ body {
 .foot__mark {
   margin: 0 0 1.2rem;
   font-family: var(--font-display);
-  font-size: clamp(0.8rem, 0.7rem + 0.6vw, 1.1rem);
+  font-size: clamp(0.68rem, 0.6rem + 0.45vw, 0.92rem);
   letter-spacing: 0.4em;
   text-indent: 0.4em;
   text-transform: uppercase;
@@ -425,11 +377,17 @@ body {
 
 .is-ready .wordmark.reveal.is-visible {
   opacity: 1;
-  animation: focus-pull 1.9s cubic-bezier(0.16, 0.84, 0.28, 1) both;
+  will-change: filter, opacity, transform;
+  animation: focus-pull 1.5s cubic-bezier(0.16, 0.84, 0.28, 1) both;
 }
 
+/* Dropped by JS once the animation ends — holding a layer this large open
+   costs memory for no benefit after it has settled. Needs to out-specify the
+   rule above that set it, hence the full chain. */
+.is-ready .wordmark.reveal.is-visible.is-settled { will-change: auto; }
+
 @keyframes focus-pull {
-  from { opacity: 0; filter: blur(24px); transform: scale(1.06); }
+  from { opacity: 0; filter: blur(10px); transform: scale(1.045); }
   55%  { opacity: 1; }
   to   { opacity: 1; filter: blur(0); transform: none; }
 }
@@ -448,9 +406,9 @@ body {
     max-width: 34rem;
     margin-top: 2.5rem;
   }
-  .plate__inner::before {
-    background: radial-gradient(80% 60% at 40% 50%,
-                rgb(3 5 12 / 0.88), rgb(3 5 12 / 0.62) 52%, transparent 84%);
+  .plate:not(.plate--hero):not(.plate--foot)::before {
+    background: radial-gradient(62% 60% at 44% 50%,
+                rgb(3 5 12 / 0.88), rgb(3 5 12 / 0.62) 52%, transparent 82%);
   }
 }
 

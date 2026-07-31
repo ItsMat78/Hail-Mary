@@ -5,6 +5,30 @@
 window.VA_SHADERS = (function () {
   'use strict';
 
+  /* The tunables from config.js become #defines, so the numbers live in one
+     readable file instead of being buried in GLSL string literals. */
+  function defines() {
+    var cfg = window.VA_CONFIG || {};
+    var out = [];
+    var k;
+    /* Floats: GLSL will not accept a bare integer where a float is expected. */
+    var g = cfg.glsl || {};
+    for (k in g) {
+      if (!Object.prototype.hasOwnProperty.call(g, k)) { continue; }
+      out.push('#define ' + k + ' ' + (typeof g[k] === 'number' ? g[k].toFixed(6) : g[k]));
+    }
+    /* Integers, kept apart rather than guessed at from the value: a loop
+       bound has to be a constant integer, and 32.000000 will not compile. */
+    var gi = cfg.glslInt || {};
+    for (k in gi) {
+      if (!Object.prototype.hasOwnProperty.call(gi, k)) { continue; }
+      out.push('#define ' + k + ' ' + (gi[k] | 0));
+    }
+    return out.join('\n') + '\n';
+  }
+
+  var D = defines();
+
   /* Fullscreen triangle. WebGL1 has no gl_VertexID, so positions come from a buffer. */
   var VERT = [
     'attribute vec2 aPos;',
@@ -29,6 +53,9 @@ window.VA_SHADERS = (function () {
     'uniform vec3  uC1;',       // crimson mass  (left)
     'uniform vec3  uC2;',       // amber mass    (low / rim light)
     'uniform vec3  uC3;',       // teal mass     (right)
+    'uniform vec3  uLightCol;', // colour of the moving light
+    'uniform vec2  uFlow;',     // smoothed pointer velocity, stirs the clouds
+    'uniform float uSwirl;',    // signed vorticity from that velocity
     'uniform float uLowQ;',     // 1.0 = fewer fbm octaves
     'uniform float uDrift;',    // 0.0 = reduced motion, freeze all time terms
 
@@ -53,8 +80,10 @@ window.VA_SHADERS = (function () {
     '  return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);',
     '}',
 
+    /* Scaled to the same peak as fbm4, so dropping to low quality changes how
+       detailed the cloud is without also changing how much of it there is. */
     'float fbm2(vec2 p) {',
-    '  return 0.5 * vnoise(p) + 0.25 * vnoise(p * 2.02);',
+    '  return (0.5 * vnoise(p) + 0.25 * vnoise(p * 2.02)) * 1.25;',
     '}',
 
     'float fbm3(vec2 p) {',
@@ -82,7 +111,7 @@ window.VA_SHADERS = (function () {
     '  vec2 r = vec2(fbm3(p + 2.2 * q + vec2(1.7, 9.2) + t * 0.050),',
     '                fbm3(p + 2.2 * q + vec2(8.3, 2.8) - t * 0.041));',
     '  float f = fbmQ(p + 2.6 * r);',
-    '  core = pow(max(f - 0.66, 0.0) * 3.1, 2.6);',
+    '  core = pow(max(f - CORE_CUT, 0.0) * 3.1, 2.6);',
     '  return f;',
     '}',
 
@@ -132,8 +161,9 @@ window.VA_SHADERS = (function () {
     '  float id = floor(p.x);',
     '  float fx = fract(p.x) - 0.5;',
     '  float h = hash21(vec2(id, 3.7));',
-    '  if (h < 0.80) { return 0.0; }',
-    '  float y = fract(p.y * 2.1 - t * (0.05 + h * 0.10) + h * 17.0);',
+    '  if (h < DUST_SPARSITY) { return 0.0; }',
+    /* +t, not -t. Negating it ran the motes upward. */
+    '  float y = fract(p.y * 2.1 + t * (0.05 + h * 0.10) * DUST_SPEED + h * 17.0);',
     '  float len = 0.03 + h * 0.06;',
     '  float streak = smoothstep(len, 0.0, y) * smoothstep(0.0, 0.004, y);',
     '  float line = smoothstep(0.022, 0.0, abs(fx));',
@@ -145,7 +175,7 @@ window.VA_SHADERS = (function () {
        which is where the poster puts its planetary limb. */
     'float ridgeHeight(float x) {',
     '  return -0.004',
-    '       + 0.360 * smoothstep(0.46, -0.14, x)',
+    '       + RIDGE_H * smoothstep(0.46, -0.14, x)',
     '       + 0.022 * sin(x * 3.1 + 0.6)',
     '       + 0.013 * sin(x * 7.3 - 1.2)',
     '       + 0.007 * sin(x * 17.9 + 2.4)',
@@ -163,12 +193,20 @@ window.VA_SHADERS = (function () {
 
     '  vec3 col = vec3(0.0);',
 
+    /* --- stir ----------------------------------------------------------- */
+    /* uFlow and uSwirl arrive already integrated: they are where the medium
+       has been pushed and rotated to, not how fast it is moving. So the
+       clouds hold their new position once the pointer stops instead of
+       sliding back to where they started. */
+    '  float ca = cos(uSwirl), sa = sin(uSwirl);',
+    '  vec2 fsp = mat2(ca, -sa, sa, ca) * sp - uFlow;',
+
     /* --- nebula: one warped layer over a cheap wash -------------------- */
     '  float coreNear = 0.0;',
-    '  vec2 pNear = sp * 2.30 + pan * 0.13 + vec2(0.0, uScroll * 0.95);',
+    '  vec2 pNear = fsp * NEB_SCALE + pan * 0.13 + vec2(0.0, uScroll * 0.95);',
     '  float dNear = nebula(pNear - vec2(6.0, 3.0), t, coreNear);',
 
-    '  float dFar = fbm3(sp * 1.05 + pan * 0.05 + vec2(7.3, uScroll * 0.40));',
+    '  float dFar = fbm3(fsp * 1.05 + pan * 0.05 + vec2(7.3, uScroll * 0.40));',
 
     /* Where the poster puts its colour: crimson left, teal right, amber low.
        The pointer slides that whole split, so moving right warms the sky to
@@ -185,13 +223,13 @@ window.VA_SHADERS = (function () {
     /* The poster is mostly black. Clouds are the exception, not the field,
        so cut hard into the noise and let the tail be what shows. */
     '  float density = dNear * 0.72 + dFar * 0.40;',
-    '  density = pow(max(density - 0.44, 0.0) * 2.45, 2.3);',
+    '  density = pow(max(density - NEB_CUT, 0.0) * NEB_GAIN, NEB_POW);',
     '  density *= 0.35 + 0.65 * smoothstep(-0.05, 0.55, uv.y);',
-    '  col += tint * density * 2.3;',
+    '  col += tint * density * NEB_BRIGHT;',
 
     /* Hot cores read as white before they read as colour, the way a sensor
        clips, and they are what the bloom pass picks up. */
-    '  col += mix(tint, vec3(1.0), 0.5) * coreNear * 2.9;',
+    '  col += mix(tint, vec3(1.0), 0.5) * coreNear * CORE_BRIGHT;',
 
     /* --- stars, three depths ------------------------------------------ */
     '  vec2 s1 = sp * 1.0 + pan * 0.010 + vec2(0.0, uScroll * 0.10);',
@@ -200,25 +238,27 @@ window.VA_SHADERS = (function () {
     '  float st = starLayer(s1, 34.0, 0.030, 1.0, t)',
     '           + starLayer(s2, 20.0, 0.042, 7.0, t) * 0.9',
     '           + starLayer(s3, 11.0, 0.060, 3.0, t) * 0.8;',
-    '  col += ICE * st * 1.55;',
+    '  col += ICE * st * STAR_BRIGHT;',
 
     /* Nearest layer is out of focus. */
-    '  col += ICE * bokeh(sp + pan * 0.09, t) * 0.30;',
+    '  col += ICE * bokeh(fsp + pan * 0.09, t) * BOKEH_BRIGHT;',
 
     /* --- the light source itself -------------------------------------- */
+    /* Only a small hot core here. The volume around it is drawn by the ray
+       pass, which is the one that knows what the text is blocking. */
     '  float lightDist = length((uv - uLight) * vec2(aspect, 1.0));',
     '  float beam = exp(-lightDist * 2.9);',
-    '  col += ICE * beam * 0.10;',
+    '  col += mix(uLightCol, vec3(1.0), 0.45) * pow(beam, 2.2) * BEAM_BRIGHT;',
 
     /* Motes only catch the light when they are in it. */
     '  float mote = dust(sp * 1.0 + pan * 0.05, t);',
-    '  col += ICE * mote * (0.02 + beam * 1.30);',
+    '  col += mix(ICE, uLightCol, 0.45) * mote * (0.02 + beam * DUST_BRIGHT);',
 
     /* --- ridge --------------------------------------------------------- */
     /* The horizon sinks out of frame as you climb away from it and rises
        again at the end, so the scroll reads as the camera tilting up rather
        than the same foreground tagging along through every section. */
-    '  float drop = sin(uScroll * 3.14159265) * 0.46;',
+    '  float drop = sin(uScroll * 3.14159265) * RIDGE_DROP;',
     '  float h0 = ridgeHeight(uv.x) - drop;',
     '  float h1 = ridgeHeight(uv.x + 0.006) - drop;',
     '  vec2 tang = normalize(vec2(0.006, h1 - h0));',
@@ -238,7 +278,7 @@ window.VA_SHADERS = (function () {
 
     '  vec3 rock = vec3(0.008, 0.011, 0.022) + uC2 * 0.022 * ndl * (0.3 + atten);',
     '  col = mix(col, rock, inside);',
-    '  col += uC2 * rim * 1.7;',
+    '  col += uC2 * rim * RIM_BRIGHT;',
     '  col += vec3(1.0) * pow(rim, 2.6) * 0.5;',
 
     '  gl_FragColor = vec4(max(col, 0.0), 1.0);',
@@ -274,6 +314,76 @@ window.VA_SHADERS = (function () {
     '}'
   ].join('\n');
 
+  /* ----------------------------------------------------------------- mask */
+  /* Stamps one heading from the atlas into the viewport-space occluder mask.
+     Every heading is rasterised once into a single atlas texture; each frame
+     the visible ones get blitted to wherever they currently sit on screen.
+     That keeps scrolling free — no re-rasterising, no re-uploading — and lets
+     the ray pass sample the mask with plain uv instead of testing rectangles. */
+  var QUAD_VERT = [
+    'attribute vec2 aPos;',      // unit quad, 0..1
+    'uniform vec4 uDst;',        // destination x, y, w, h in clip space
+    'uniform vec4 uSrc;',        // source x, y, w, h in atlas uv
+    'varying vec2 vUv;',
+    'void main() {',
+    '  vUv = uSrc.xy + aPos * uSrc.zw;',
+    '  gl_Position = vec4(uDst.xy + aPos * uDst.zw, 0.0, 1.0);',
+    '}'
+  ].join('\n');
+
+  var QUAD_FRAG = [
+    'precision mediump float;',
+    'varying vec2 vUv;',
+    'uniform sampler2D uTex;',
+    'void main() { gl_FragColor = texture2D(uTex, vUv); }'
+  ].join('\n');
+
+  /* ----------------------------------------------------------------- rays */
+  /* Volumetric light from the pointer, with the wordmark as a wall.
+     Each fragment walks back toward the light through an occluder mask; every
+     step that lands on a letter stops contributing. So light fills the space
+     it can reach and stops dead behind the type, and the letters throw shafts
+     that swing around as the light moves. */
+  var RAYS = [
+    'precision highp float;',
+    'varying vec2 vUv;',
+
+    'uniform sampler2D uMask;',   // viewport-space occluder coverage
+    'uniform vec2  uLight;',
+    'uniform vec3  uLightCol;',
+    'uniform vec2  uRes;',
+    'uniform float uRayAmt;',
+
+    /* The mask is already in viewport space, so this is a straight lookup. */
+    'float occluded(vec2 p) { return texture2D(uMask, p).a; }',
+
+    'void main() {',
+    '  vec2 uv = vUv;',
+    '  float aspect = uRes.x / max(uRes.y, 1.0);',
+
+    '  vec2 delta = (uv - uLight) * (1.0 / float(RAY_STEPS)) * 1.02;',
+    '  vec2 coord = uv;',
+    '  float illum = 1.0;',
+    '  float acc = 0.0;',
+    '  for (int i = 0; i < RAY_STEPS; i++) {',
+    '    coord -= delta;',
+    '    acc += (1.0 - occluded(coord)) * illum;',
+    '    illum *= RAY_DECAY;',
+    '  }',
+    '  acc /= float(RAY_STEPS);',
+
+    /* Inverse-square falloff, and a hotter core right at the source. The
+       accumulation above is near-uniform wherever nothing blocks it, so this
+       is what keeps the shafts local instead of washing the whole frame. */
+    '  float d = length((uv - uLight) * vec2(aspect, 1.0));',
+    '  float fall = 1.0 / (1.0 + d * d * RAY_REACH);',
+    '  float core = exp(-d * 8.0);',
+
+    '  vec3 col = uLightCol * acc * (fall * RAY_FALL + core * RAY_CORE) * uRayAmt;',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n');
+
   /* ------------------------------------------------------------ composite */
   /* This is the lens and the sensor: aberration, bloom, anamorphic streak,
      ghosts, vignette, tone curve, grain. Order matters and matches a camera. */
@@ -283,6 +393,8 @@ window.VA_SHADERS = (function () {
 
     'uniform sampler2D uScene;',
     'uniform sampler2D uBloom;',
+    'uniform sampler2D uRays;',
+    'uniform vec3  uLightCol;',
     'uniform vec2  uRes;',
     'uniform float uTime;',
     'uniform vec2  uLight;',
@@ -291,6 +403,7 @@ window.VA_SHADERS = (function () {
     'uniform float uGrain;',
     'uniform float uVignette;',
     'uniform float uFlare;',
+    'uniform float uMotion;',   // pointer speed, 0 at rest
     'uniform float uBloomAmt;',
 
     'const vec3 ICE = vec3(0.81, 0.90, 1.0);',
@@ -321,19 +434,26 @@ window.VA_SHADERS = (function () {
     '  vec3 col   = sampleCA(uScene, uv, uAberration);',
     '  vec3 bloom = sampleCA(uBloom, uv, uAberration * 1.8);',
     '  col += bloom * uBloomAmt;',
+    '  col += texture2D(uRays, uv).rgb;',
 
     /* How much light is actually at the pointer. No bright subject, no flare —
        which is why the streak and ghosts come and go as you move. */
     '  vec3 atLight = texture2D(uBloom, uLight).rgb;',
     '  float energy = clamp(dot(atLight, vec3(0.299, 0.587, 0.114)) * 2.4, 0.0, 1.4);',
     '  float flare = uFlare * energy;',
+    /* The streak also answers to movement, so it sweeps out whenever the
+       pointer travels and settles away once it stops — not only when there
+       happens to be something bright underneath it. Ghosts stay tied to the
+       actual light, since a lens only throws those from a real source. */
+    '  float streakAmt = uFlare * (energy + uMotion * STREAK_MOTION);',
 
     /* Anamorphic streak: tight bright core inside a wide soft one. */
     '  float dy = abs(uv.y - uLight.y);',
     '  float dx = abs(uv.x - uLight.x);',
     '  float core = exp(-dy * 780.0) * exp(-dx * 1.7);',
     '  float wide = exp(-dy * 130.0) * exp(-dx * 2.6);',
-    '  col += ICE * (core * 1.5 + wide * 0.34) * flare;',
+    '  vec3 streakCol = mix(ICE, uLightCol, 0.55);',
+    '  col += streakCol * (core * STREAK_AMT + wide * 0.34) * streakAmt;',
 
     /* Ghosts sit opposite the light through the optical centre, and they are
        rings, not discs — the hollow is the aperture. */
@@ -343,9 +463,9 @@ window.VA_SHADERS = (function () {
     '    float r = 0.022 + fi * 0.030;',
     '    float d = length((uv - gp) * vec2(aspect, 1.0));',
     '    float ring = smoothstep(r, r * 0.72, d) * smoothstep(r * 0.42, r * 0.78, d);',
-    '    vec3 tintA = mix(vec3(0.20, 0.85, 0.77), vec3(0.77, 0.17, 0.30), fract(fi * 0.37));',
+    '    vec3 tintA = mix(uLightCol, vec3(0.77, 0.17, 0.30), fract(fi * 0.37));',
     '    vec3 tintB = mix(vec3(1.00, 0.62, 0.32), ICE, fract(fi * 0.61));',
-    '    col += ring * mix(tintA, tintB, fract(fi * 0.5)) * flare * 0.42;',
+    '    col += ring * mix(tintA, tintB, fract(fi * 0.5)) * flare * GHOST_AMT;',
     '  }',
 
     /* The optical axis drifts a little toward the light. */
@@ -365,5 +485,13 @@ window.VA_SHADERS = (function () {
     '}'
   ].join('\n');
 
-  return { VERT: VERT, SCENE: SCENE, BLUR: BLUR, COMPOSITE: COMPOSITE };
+  return {
+    VERT: VERT,
+    QUAD_VERT: QUAD_VERT,
+    QUAD_FRAG: QUAD_FRAG,
+    SCENE: D + SCENE,
+    BLUR: BLUR,
+    RAYS: D + RAYS,
+    COMPOSITE: D + COMPOSITE
+  };
 })();

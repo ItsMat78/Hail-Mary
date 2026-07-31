@@ -5,6 +5,7 @@
 (function () {
   'use strict';
 
+  var CFG = window.VA_CONFIG;
   var root = document.documentElement;
   var canvas = document.getElementById('sky');
   var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -71,12 +72,165 @@
     };
   });
 
+  var vw = window.innerWidth, vh = window.innerHeight;
+
   function measure() {
+    vw = window.innerWidth;
+    vh = window.innerHeight;
     for (var i = 0; i < stops.length; i++) {
       var r = stops[i].el.getBoundingClientRect();
       stops[i].top = r.top + window.pageYOffset;
       stops[i].h = Math.max(1, r.height);
     }
+  }
+
+  /* ------------------------------------------------------- occluder mask */
+
+  /* Every heading gets rasterised once into a single atlas canvas. Each frame
+     the renderer stamps whichever ones are on screen into a viewport-space
+     mask, and the ray pass marches light against that. Rasterising once and
+     blitting per frame is what keeps this free while scrolling.
+
+     Characters are placed from Range rectangles rather than measured text, so
+     letter-spacing, line breaks and centring come straight from the layout the
+     browser already did — no attempt to re-derive any of it. */
+
+  var atlasCanvas = null;
+  var occluders = [];
+  var ATLAS_PAD = 14;
+
+  function headings() {
+    return [].slice.call(document.querySelectorAll('.wordmark, .head'));
+  }
+
+  /* Skip text that is only there for screen readers — it is positioned off
+     in the corner and would stamp a shadow in the wrong place. */
+  function visibleText(root) {
+    var out = [];
+    var walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+    var n;
+    while ((n = walk.nextNode())) {
+      if (!n.nodeValue || !n.nodeValue.trim()) { continue; }
+      var p = n.parentElement, hidden = false;
+      while (p && p !== root) {
+        if (p.classList && p.classList.contains('sr-only')) { hidden = true; break; }
+        p = p.parentElement;
+      }
+      if (!hidden) { out.push(n); }
+    }
+    return out;
+  }
+
+  function drawHeading(ctx, el, ox, oy) {
+    var cs = getComputedStyle(el);
+    ctx.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
+    ctx.fillStyle = '#fff';
+    ctx.textBaseline = 'alphabetic';
+    ctx.textAlign = 'left';
+
+    var er = el.getBoundingClientRect();
+    var nodes = visibleText(el);
+    var range = document.createRange();
+
+    for (var k = 0; k < nodes.length; k++) {
+      var node = nodes[k];
+      var text = node.nodeValue;
+      for (var i = 0; i < text.length; i++) {
+        var ch = text.charAt(i);
+        if (ch === ' ' || ch === '\n' || ch === '\t') { continue; }
+        range.setStart(node, i);
+        range.setEnd(node, i + 1);
+        var r = range.getBoundingClientRect();
+        if (r.width < 0.5 || r.height < 0.5) { continue; }
+        var m = ctx.measureText(ch);
+        var asc = m.fontBoundingBoxAscent;
+        var desc = m.fontBoundingBoxDescent;
+        if (!asc) { asc = r.height * 0.78; desc = r.height * 0.22; }
+        /* Half-leading: correct whether the rect is the font box or the line
+           box, which differs between element types. */
+        var baseline = (r.top - er.top) + oy + asc + (r.height - (asc + desc)) / 2;
+        ctx.fillText(ch, (r.left - er.left) + ox, baseline);
+      }
+    }
+  }
+
+  /* Untransformed layout box, in page coordinates. getBoundingClientRect
+     would include the reveal animation's translate and the hero's scale, which
+     would put every shadow a few dozen pixels below where the text really is.
+     Offsets inside a heading are still taken from client rects — a translate
+     cancels out there, since both ends of the subtraction carry it. */
+  function pageBox(el) {
+    var x = 0, y = 0, n = el;
+    while (n) { x += n.offsetLeft; y += n.offsetTop; n = n.offsetParent; }
+    return { left: x, top: y, width: el.offsetWidth, height: el.offsetHeight };
+  }
+
+  function buildAtlas() {
+    if (!sky) { return; }
+    var els = headings();
+    if (!els.length) { return; }
+
+    var boxes = els.map(pageBox);
+    var W = 0, H = 0;
+    for (var i = 0; i < boxes.length; i++) {
+      W = Math.max(W, Math.ceil(boxes[i].width) + ATLAS_PAD * 2);
+      H += Math.ceil(boxes[i].height) + ATLAS_PAD * 2;
+    }
+    if (W < 2 || H < 2) { return; }
+
+    if (!atlasCanvas) { atlasCanvas = document.createElement('canvas'); }
+    atlasCanvas.width = W;
+    atlasCanvas.height = H;
+    var ctx = atlasCanvas.getContext('2d');
+    ctx.clearRect(0, 0, W, H);
+
+    occluders = [];
+    var y = 0;
+    for (var j = 0; j < els.length; j++) {
+      var r = boxes[j];
+      var bh = Math.ceil(r.height) + ATLAS_PAD * 2;
+      var bw = Math.ceil(r.width) + ATLAS_PAD * 2;
+      drawHeading(ctx, els[j], ATLAS_PAD, y + ATLAS_PAD);
+      occluders.push({
+        /* Where it sits in the atlas, and where it sits on the page. */
+        ax: 0, ay: y, aw: bw, ah: bh,
+        left: r.left - ATLAS_PAD,
+        top: r.top - ATLAS_PAD,
+        w: bw, h: bh,
+        src: [0, 0, 0, 0],
+        dst: [0, 0, 0, 0]
+      });
+      y += bh;
+    }
+
+    atlasW = W;
+    atlasH = H;
+    sky.setAtlas(atlasCanvas);
+  }
+
+  var atlasW = 1, atlasH = 1;
+
+  /* Per frame: which headings are on screen, and where. Cheap enough to redo
+     every frame because it is pure arithmetic on cached boxes. */
+  function updateOccluders() {
+    var live = [];
+    for (var i = 0; i < occluders.length; i++) {
+      var o = occluders[i];
+      var top = o.top - scrollY;
+      if (top > vh || top + o.h < 0) { continue; }
+      /* Clip space, y up. */
+      o.dst[0] = (o.left / vw) * 2 - 1;
+      o.dst[1] = 1 - ((top + o.h) / vh) * 2;
+      o.dst[2] = (o.w / vw) * 2;
+      o.dst[3] = (o.h / vh) * 2;
+      /* Atlas uv. The texture was uploaded flipped, so v = 0 is the last row. */
+      o.src[0] = o.ax / atlasW;
+      o.src[1] = 1 - (o.ay + o.ah) / atlasH;
+      o.src[2] = o.aw / atlasW;
+      o.src[3] = o.ah / atlasH;
+      live.push(o);
+    }
+    st.occluders = live;
   }
 
   /* Which palette applies right now: the section under the middle of the
@@ -106,9 +260,17 @@
 
   /* --------------------------------------------------------------- state */
 
+  /* The light's own colour, blended bilinearly across the viewport, so a
+     sweep of the pointer runs it through all four hues. */
+  var LIGHT_TL = toLinear(hexToRgb(CFG.light.topLeft));
+  var LIGHT_TR = toLinear(hexToRgb(CFG.light.topRight));
+  var LIGHT_BL = toLinear(hexToRgb(CFG.light.bottomLeft));
+  var LIGHT_BR = toLinear(hexToRgb(CFG.light.bottomRight));
+
   var st = {
     time: 0,
     lightX: 0.5, lightY: 0.62,
+    lightCol: [1, 1, 1],
     scroll: 0,
     c1: [0, 0, 0], c2: [0, 0, 0], c3: [0, 0, 0],
     exposure: 1,
@@ -116,7 +278,11 @@
     grain: 0.055,
     vignette: 0.58,
     flare: 0.6,
-    bloom: 0.95,
+    motion: 0,
+    bloom: CFG.camera.bloom,
+    rayAmt: 1,
+    flowX: 0, flowY: 0, swirl: 0,
+    occluders: [],
     drift: reduced ? 0 : 1
   };
 
@@ -162,16 +328,31 @@
 
   /* --------------------------------------------------------------- input */
 
+  /* Momentum in the medium, kept as velocity and position separately.
+     Pointer movement pushes the velocity; the loop integrates that into a
+     position that is never pulled back. Only the velocity decays, so the
+     clouds coast to a stop and stay where they were left — decaying the
+     displacement instead is what made them spring back to where they began. */
+  var stirVX = 0, stirVY = 0, stirVA = 0;
+  var stirX = 0, stirY = 0, stirA = 0;
+
   if (hasHover && !reduced) {
     window.addEventListener('pointermove', function (e) {
-      var nx = e.clientX / window.innerWidth;
-      var ny = e.clientY / window.innerHeight;
-      velTarget = Math.min(1, Math.hypot(nx - lastPx, ny - lastPy) * 26);
+      var nx = e.clientX / vw;
+      var ny = e.clientY / vh;
+      var dx = nx - lastPx;
+      var dy = ny - lastPy;
+      velTarget = Math.min(1, Math.hypot(dx, dy) * 26);
+      stirVX += dx * CFG.stir.pushGain;
+      stirVY -= dy * CFG.stir.pushGain;
+      stirVA += dx * CFG.stir.swirlGain;
       lastPx = nx; lastPy = ny;
       targetX = nx;
       targetY = 1 - ny; /* GL space has y up */
     }, { passive: true });
   }
+
+  function clamp(v, lim) { return v < -lim ? -lim : (v > lim ? lim : v); }
 
   window.addEventListener('scroll', function () {
     scrollY = window.pageYOffset;
@@ -183,14 +364,47 @@
     resizeTimer = setTimeout(function () {
       measure();
       if (sky) { sky.resize(window.innerWidth, window.innerHeight); }
+      buildAtlas();
       if (reduced || !sky) { requestAnimationFrame(function () { frame(0); }); }
     }, 120);
   }, { passive: true });
 
-  if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(function () { measure(); });
+  var atlasQueued = false;
+  function scheduleAtlas() {
+    if (atlasQueued) { return; }
+    atlasQueued = true;
+    requestAnimationFrame(function () { atlasQueued = false; buildAtlas(); });
   }
-  window.addEventListener('load', measure);
+
+  function remeasure() {
+    measure();
+    scheduleAtlas();
+  }
+
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(remeasure);
+  }
+  window.addEventListener('load', remeasure);
+
+  /* The hero animates in with a scale, so its box is wrong until that ends.
+     Rebuild once it settles. */
+  var wordmarkEl = document.querySelector('.wordmark');
+  if (wordmarkEl) {
+    var settled = false;
+    function settle() {
+      if (settled) { return; }
+      settled = true;
+      /* Release the compositor layer the intro needed. */
+      wordmarkEl.classList.add('is-settled');
+      remeasure();
+    }
+    wordmarkEl.addEventListener('animationend', settle);
+    /* animationend does not arrive if the animation is interrupted, or if the
+       page is in a background tab where the browser is barely producing
+       frames. Without this the layer would stay pinned and the occluder atlas
+       would keep the scaled-up boxes it was built with. */
+    setTimeout(settle, 3000);
+  }
 
   /* --------------------------------------------------------------- reveal */
 
@@ -238,6 +452,7 @@
   }
 
   root.classList.add('is-ready');
+  buildAtlas();
 
   /* ----------------------------------------------------------------- loop */
 
@@ -263,24 +478,49 @@
 
     var docH = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
     var sp = Math.min(1, Math.max(0, scrollY / docH));
-    st.scroll = ease(st.scroll, sp, 8, dt);
+    st.scroll = ease(st.scroll, sp, CFG.ease.scroll, dt);
 
-    st.lightX = ease(st.lightX, targetX, 6.5, dt);
-    st.lightY = ease(st.lightY, targetY, 6.5, dt);
+    st.lightX = ease(st.lightX, targetX, CFG.ease.light, dt);
+    st.lightY = ease(st.lightY, targetY, CFG.ease.light, dt);
 
     velTarget *= Math.pow(0.02, dt);
     vel = ease(vel, velTarget, 12, dt);
+    /* Separate from vel: this one drives the anamorphic streak, and wants a
+       gentler curve so the sweep trails the cursor rather than snapping. */
+    st.motion = ease(st.motion, Math.min(1, velTarget * 1.6), CFG.camera.motionEase, dt);
+
+    /* Integrate first, then bleed the velocity. The offsets are kept. */
+    stirX = clamp(stirX + stirVX * dt, CFG.stir.pushLimit);
+    stirY = clamp(stirY + stirVY * dt, CFG.stir.pushLimit);
+    stirA = clamp(stirA + stirVA * dt, CFG.stir.swirlLimit);
+    var bleed = Math.pow(CFG.stir.decay, dt);
+    stirVX *= bleed;
+    stirVY *= bleed;
+    stirVA *= bleed;
+    st.flowX = stirX;
+    st.flowY = stirY;
+    st.swirl = stirA;
+
+    var top = mix3(LIGHT_TL, LIGHT_TR, st.lightX);
+    var bot = mix3(LIGHT_BL, LIGHT_BR, st.lightX);
+    st.lightCol = mix3(bot, top, st.lightY);
+
+    /* Shafts belong to the hero. Past it the light keeps its colour but
+       stops filling the frame, so the deep-space plates stay dark. */
+    st.rayAmt = 1 - 0.5 * smoothstep(0, 0.22, st.scroll);
+
+    updateOccluders();
 
     var p = paletteAt(scrollY);
     if (p) {
-      var kc = 1 - Math.exp(-3.2 * dt);
+      var kc = 1 - Math.exp(-CFG.ease.palette * dt);
       st.c1 = mix3(st.c1, p.l1, kc);
       st.c2 = mix3(st.c2, p.l2, kc);
       st.c3 = mix3(st.c3, p.l3, kc);
 
       /* An iris stops down fast and opens back up slowly. That asymmetry is
          most of why this reads as a camera rather than a crossfade. */
-      var k = p.exposure < st.exposure ? 7.5 : 1.5;
+      var k = p.exposure < st.exposure ? CFG.ease.exposureDown : CFG.ease.exposureUp;
       st.exposure = ease(st.exposure, p.exposure, k, dt);
 
       writeCss(p);
@@ -290,14 +530,14 @@
        shader scales this by distance-cubed, so single-digit thousandths
        already read as a few pixels of separation out at the corners. */
     var offAxis = Math.hypot(st.lightX - 0.5, st.lightY - 0.5) * 2;
-    st.aberration = 0.0035 + offAxis * 0.0060 + vel * 0.022;
-    st.flare = 0.50 + vel * 0.75;
-    st.vignette = 0.54 + st.scroll * 0.14;
-    st.grain = 0.050 + (1 - Math.min(1, st.exposure)) * 0.05;
+    st.aberration = CFG.camera.aberrationBase + offAxis * CFG.camera.aberrationEdge + vel * CFG.camera.aberrationVel;
+    st.flare = CFG.camera.flareBase + vel * CFG.camera.flareVel;
+    st.vignette = CFG.camera.vignetteBase + st.scroll * CFG.camera.vignetteScroll;
+    st.grain = CFG.camera.grainBase + (1 - Math.min(1, st.exposure)) * 0.05;
 
     /* The type is fringed by the same optics as the sky. Stepped, because a
        text-shadow that changes every frame repaints the whole headline. */
-    var fringe = (st.lightX - 0.5) * (4.5 + vel * 7) * (0.45 + offAxis * 0.9);
+    var fringe = (st.lightX - 0.5) * (CFG.camera.fringePx + vel * 5) * (0.4 + offAxis * 0.8);
     if (Math.abs(fringe - wroteFringe) > 0.12) {
       wroteFringe = fringe;
       root.style.setProperty('--fringe', fringe.toFixed(2));
@@ -312,14 +552,14 @@
          is occluded or backgrounded, and that must not be mistaken for a slow
          GPU — it would drop a perfectly capable machine to the CSS fallback
          just because the user looked at another window. */
-      if (watching && raw < 0.2) {
+      if (watching && st.time > CFG.quality.warmupSeconds && raw < 0.2) {
         samples.push(raw);
-        if (samples.length >= 24) {
+        if (samples.length >= 32) {
           var sum = 0;
           for (var i = 4; i < samples.length; i++) { sum += samples[i]; }
           var mean = sum / (samples.length - 4);
           samples.length = 0;
-          if (mean > 0.030) {
+          if (mean > CFG.quality.slowFrameMs / 1000) {
             if (!sky.degrade()) {
               /* Out of headroom. The CSS sky is better than a frozen page.
                  The loop stays alive — without GL it costs almost nothing,
