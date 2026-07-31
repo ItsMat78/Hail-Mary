@@ -11,7 +11,6 @@ js/config.js             ← every number worth changing lives here
 js/shaders.js            GLSL: scene / blur / mask / rays / composite
 js/sky.js                WebGL renderer — 5 programs, 5 framebuffers
 js/main.js               pointer + scroll state, easing, palette, reveals
-Hail_Mary_Sans_v2.otf    font source; css/font.css is generated from it
 ```
 
 ## Changing how it looks
@@ -75,9 +74,11 @@ Base tokens are the custom properties at the top of `:root`.
 
 The display face is **Hail Mary Sans**, whose capital **A** is already drawn as
 a hollow triangle — the headings are plain text, with no SVG substitution. It
-is embedded in `css/font.css` as a data URI rather than linked, because Chrome
-refuses a font fetched from a `file://` page. If you replace the `.otf`,
-regenerate that file.
+is embedded in `css/font.css` as a base64 data URI rather than linked to a font
+file, because Chrome treats a font fetched from a `file://` page as
+cross-origin and refuses it — inlining is what keeps the page working when
+opened by double-click. That embedded copy is the only one in the repo; to swap
+the face, regenerate `css/font.css` from a new `.otf`.
 
 Note the face advances about **1.4em per character**, which is very wide. Every
 display size in the stylesheet is fitted to that; if you swap the font, expect
