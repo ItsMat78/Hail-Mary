@@ -1,8 +1,9 @@
 /* VAST ARRAY — every number worth touching, in one place.
    Edit a value, save, reload. Nothing here needs a build step.
 
-   The `glsl` block is compiled into the shaders as #defines at startup, so
-   those take a reload. Everything else is read live by the animation loop.
+   The `glsl` and `glslInt` blocks are compiled into the shaders as #defines at
+   startup, so those take a reload. Everything else is read live by the
+   animation loop, so it takes effect on the next frame.
 
    Colours that belong to the page rather than the sky (section palettes,
    type, borders) live elsewhere: per-section colours are data-c1/c2/c3 and
@@ -11,110 +12,123 @@
 
 window.VA_CONFIG = {
 
-  /* The moving light's own colour, blended across the viewport by pointer
-     position, so a sweep runs it through all four. */
+  /* ------------------------------------------------------------ the star */
+  /* The sun under the cursor takes its colour from these four, blended by
+     where the pointer is, so a sweep across the page runs it through all of
+     them. This is also how real stars work: colour is temperature. */
   light: {
-    topLeft:     '#4C7BFF',   // blue
-    topRight:    '#35E0B0',   // green
-    bottomLeft:  '#FF3B4E',   // red
-    bottomRight: '#FF5BC8'    // pink
+    topLeft:     '#4C7BFF',   // colour when the pointer is at the top left
+    topRight:    '#35E0B0',   // colour when the pointer is at the top right
+    bottomLeft:  '#FF3B4E',   // colour when the pointer is at the bottom left
+    bottomRight: '#FF5BC8'    // colour when the pointer is at the bottom right
   },
 
-  /* ------------------------------------------------------------ the sky */
-  /* Compiled into the shaders. Reload to apply. */
+  /* -------------------------------------------------------------- the sky */
+  /* Compiled into the shaders as float #defines. Reload to apply. */
   glsl: {
-    /* Nebula. CUT is the single most useful dial: it is the noise value
-       below which there is no cloud at all, so raising it gives you more
-       black and tighter wisps, lowering it fills the frame with smoke. */
-    NEB_CUT:      0.44,
-    NEB_GAIN:     2.45,   // contrast above the cut
-    NEB_POW:      2.30,   // higher = wispier edges, softer falloff
-    NEB_BRIGHT:   2.30,
-    NEB_SCALE:    2.30,   // higher = smaller, busier cloud structures
+    /* Nebula. CUT is the single most useful dial in this file: it is the noise
+       value below which there is no cloud at all. */
+    NEB_CUT:       0.44,   // raise for more black and tighter wisps, lower to fill the frame
+    NEB_GAIN:      1.45,   // contrast applied above the cut; higher = harder edges
+    NEB_POW:       2.30,   // higher = wispier edges and a softer falloff into black
+    NEB_BRIGHT:    2.30,   // overall cloud brightness
+    NEB_SCALE:     3.30,   // higher = smaller, busier cloud structures
 
-    /* The hot centres. These are what the bloom pass picks up. */
-    CORE_CUT:     0.66,
-    CORE_BRIGHT:  2.90,
+    /* The hot cores inside the cloud. These are what the bloom pass picks up,
+       so they set how much the sky glows rather than just how bright it is. */
+    CORE_CUT:      0.66,   // noise value above which a core forms; raise for rarer, hotter cores
+    CORE_BRIGHT:   2.90,   // how fiercely those cores burn
 
-    STAR_BRIGHT:  1.55,
-    BOKEH_BRIGHT: 0.30,   // the out-of-focus hexagons
+    STAR_BRIGHT:   1.55,   // the background starfield
+    BOKEH_BRIGHT:  0.30,   // the out-of-focus hexagons on the nearest layer
 
-    /* Falling motes. SPARSITY is 0..1 — higher means fewer of them. */
-    DUST_SPARSITY: 0.80,
-    DUST_SPEED:    1.00,
-    DUST_BRIGHT:   1.30,
+    /* The motes falling down-right through the beam. */
+    DUST_SPARSITY: 0.80,   // 0..1, higher means fewer of them
+    DUST_SPEED:    2.00,   // how fast they fall
+    DUST_BRIGHT:   1.30,   // how brightly they catch the light
 
-    RIDGE_H:      0.360,  // height of the dark mass at the lower left
-    RIDGE_DROP:   0.46,   // how far it sinks out of frame mid-scroll
-    RIM_BRIGHT:   1.70,   // the hot amber edge along its crest
-    BEAM_BRIGHT:  0.30,   // small hot core at the pointer
+    /* The dark planetary limb across the lower left. */
+    RIDGE_H:       0.360,  // its height, as a fraction of the viewport
+    RIDGE_DROP:    0.46,   // how far it sinks out of frame at mid-scroll
+    RIM_BRIGHT:    1.70,   // the hot amber edge along its crest
 
-    /* Volumetric light. The wordmark blocks this, so REACH controls how far
-       the shafts throw and FALL/CORE control how bright they are. */
-    RAY_FALL:     1.05,
-    RAY_CORE:     1.35,
-    RAY_REACH:   15.00,   // higher = light stays local, lower = floods wider
-    RAY_DECAY:    0.962,  // per-step falloff along a shaft, 0..1
+    /* The sun itself: a photosphere with convection granulation, limb
+       darkening, a chromosphere at the edge, a corona, and lens spikes. */
+    SUN_RADIUS:    0.003,  // its size, as a fraction of viewport height
+    SUN_BRIGHT:    0.55,   // the photosphere; push much past this and the disc clips flat
+    SUN_GRAIN:     0.70,   // convection mottling across its face, 0 = smooth disc
+    SUN_CORONA:    0.16,   // the halo around it
+    SUN_SPIKES:    0.12,   // the six-point diffraction spikes a lens gives a point source
 
-    /* Lens artefacts in the composite pass. */
-    GHOST_AMT:    0.42,
-    STREAK_AMT:   1.50,
-    STREAK_MOTION: 1.25   // how strongly moving the pointer alone draws the streak
+    /* Volumetric light. The headings block this, which is where the shafts
+       and the shadows behind the type come from. */
+    RAY_FALL:      0.35,   // brightness of the broad glow
+    RAY_CORE:      1.20,   // brightness of the tight core near the sun
+    RAY_REACH:     25.0,   // higher keeps light local, lower lets it flood wider
+    RAY_DECAY:     0.962,  // 0..1 per-step falloff along a shaft; lower = shorter shafts
+
+    /* Lens artefacts, added in the composite pass. */
+    GHOST_AMT:     0.26,   // the ring ghosts opposite the sun through frame centre
+    STREAK_AMT:    1.50,   // the horizontal anamorphic streak
+    STREAK_MOTION: 1.25    // how strongly movement alone draws that streak; 0 = only over bright areas
   },
 
-  /* Integer defines, kept separate because GLSL loop bounds must be ints. */
+  /* Compiled as integer #defines. Kept apart from the block above because a
+     GLSL loop bound has to be a constant int, and 32.000000 will not compile. */
   glslInt: {
-    RAY_STEPS: 32   // samples along each shaft. Fewer = cheaper, slightly banded.
+    RAY_STEPS: 32          // samples along each shaft; fewer is cheaper but slightly banded
   },
 
   /* --------------------------------------------------------- the stirring */
   /* Pointer movement pushes and rotates the whole cloud field. The offset is
      integrated and kept, so the smoke stays where you leave it; only the
      velocity decays, which is what makes it coast to a stop instead of
-     springing back. */
+     springing back to where it started. */
   stir: {
-    pushGain:   0.60,   // how hard a sweep displaces the clouds
-    swirlGain:  1.30,   // how much a sweep rotates them
-    decay:      0.030,  // velocity left after one second — lower = shorter coast
-    pushLimit:  2.50,   // total travel cap, keeps noise precision sane
-    swirlLimit: 1.50    // total rotation cap, in radians
+    pushGain:   0.60,      // how far a full-width sweep displaces the clouds
+    swirlGain:  1.30,      // how much that same sweep rotates them
+    decay:      0.030,     // fraction of velocity left after one second; lower = shorter coast
+    pushLimit:  2.50,      // cap on total displacement, which keeps noise precision sane
+    swirlLimit: 1.50       // cap on total rotation, in radians
   },
 
   /* ------------------------------------------------------------- easing */
-  /* Larger = snappier. These are exponential rates, in units of 1/second. */
+  /* Exponential rates in units of 1/second. Larger = snappier. These are
+     frame-rate independent, so they feel the same at 60Hz and 144Hz. */
   ease: {
-    light:       6.5,
-    scroll:      8.0,
-    palette:     3.2,
-    exposureDown: 7.5,  // an iris stops down fast...
-    exposureUp:   1.5   // ...and opens back up slowly
+    light:        6.5,     // how quickly the sun catches up to the pointer
+    scroll:       8.0,     // how quickly scroll progress follows the real scroll
+    palette:      3.2,     // how quickly section colours crossfade
+    exposureDown: 7.5,     // an iris stops down fast...
+    exposureUp:   1.5      // ...and opens back up slowly. The asymmetry is the point.
   },
 
   /* ------------------------------------------------------------- camera */
   camera: {
-    bloom:          0.95,
-    aberrationBase: 0.0035,
-    aberrationEdge: 0.0060,  // extra fringing out toward the corners
-    aberrationVel:  0.022,   // extra while the pointer is moving
-    flareBase:      0.50,
-    flareVel:       0.75,
-    motionEase:     7.0,     // how fast the movement streak builds and fades
-    vignetteBase:   0.54,
-    vignetteScroll: 0.14,
-    grainBase:      0.050,
-    fringePx:       3.0      // colour fringing on the type, in pixels
+    bloom:          0.95,   // how much of the blurred bright pass is added back
+    aberrationBase: 0.0035, // colour fringing at frame centre
+    aberrationEdge: 0.0060, // extra fringing out toward the corners
+    aberrationVel:  0.022,  // extra fringing while the pointer is moving
+    flareBase:      0.50,   // baseline strength of streak and ghosts
+    flareVel:       0.45,   // extra flare while the pointer is moving
+    motionEase:     7.0,    // how fast the movement streak builds and fades away
+    vignetteBase:   0.54,   // corner darkening at the top of the page
+    vignetteScroll: 0.14,   // extra corner darkening by the bottom of the page
+    grainBase:      0.00,  // sensor noise; it is weighted toward the shadows
+    fringePx:       3.0     // colour fringing on the type itself, in pixels
   },
 
   /* ------------------------------------------------------------ quality */
+  /* If it runs badly, lower these in order: renderScale, then maxDpr, then
+     glslInt.RAY_STEPS. The page also steps itself down and logs when it does. */
   quality: {
-    renderScale: 0.72,  // sky buffer vs screen. Lower if your GPU struggles.
-    /* Scene buffer ceiling. The nebula is soft, so rendering it above about
-       1x CSS pixels buys nothing and costs a lot on a hidpi screen. */
-    maxDpr:      1.5,
-    displayDpr:  1.5,   // composite resolution cap
-    /* Startup is always janky — fonts, first compile, texture uploads. Do not
-       judge the GPU until it has settled, or a capable machine gets demoted. */
-    warmupSeconds: 2.5,
-    slowFrameMs:  30
+    renderScale:   0.9,   // sky buffer size relative to the screen
+    maxDpr:        1.5,    // ceiling on that buffer's pixel ratio. The nebula is soft, so
+                           // rendering above ~1x CSS pixels buys nothing on a hidpi screen
+    displayDpr:    1.5,    // ceiling on the final composite's pixel ratio
+    warmupSeconds: 2.5,    // how long to ignore frame times after load. Startup is always
+                           // janky — fonts, first shader compile, texture uploads — and
+                           // judging the GPU on that demotes a perfectly capable machine
+    slowFrameMs:   30      // mean frame time above which quality steps down
   }
 };

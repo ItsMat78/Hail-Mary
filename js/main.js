@@ -452,6 +452,12 @@
   }
 
   root.classList.add('is-ready');
+
+  /* Hide the native pointer only when a sun is actually following it. With no
+     WebGL, no fine pointer, or reduced motion there is nothing standing in for
+     it, and taking the cursor away would just leave the page feeling broken. */
+  if (sky && hasHover && !reduced) { root.classList.add('has-sun'); }
+
   buildAtlas();
 
   /* ----------------------------------------------------------------- loop */

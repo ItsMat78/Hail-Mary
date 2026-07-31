@@ -31,6 +31,9 @@ The dials worth knowing first:
 | Bigger, softer cloud shapes | `glsl.NEB_SCALE` down (try `1.6`) |
 | Brighter nebula | `glsl.NEB_BRIGHT` |
 | The light's four colours | `light.topLeft` / `topRight` / `bottomLeft` / `bottomRight` |
+| Size of the sun | `glsl.SUN_RADIUS` (fraction of viewport height) |
+| Sun brightness / halo / spikes | `glsl.SUN_BRIGHT`, `SUN_CORONA`, `SUN_SPIKES` |
+| Mottling on the sun's face | `glsl.SUN_GRAIN` (0 = smooth disc) |
 | Light shafts reach further | `glsl.RAY_REACH` down (try `10`) |
 | Stronger / weaker shafts | `glsl.RAY_FALL`, `glsl.RAY_CORE` |
 | Streak on mouse movement | `glsl.STREAK_MOTION` (0 = only over bright areas) |
@@ -83,10 +86,19 @@ to refit the `clamp()` values on `.wordmark`, `.head`, `.eyebrow`,
 
 ## How the pieces work
 
-**The cursor is a light source, not a filter.** Its position sets the colour
-split in the nebula, the hot spot on the ridge, the anamorphic streak, the lens
-ghosts, and the amount of chromatic fringing — which grows off-axis and with
-speed, like real glass.
+**The cursor is a star.** Not a filter over the page — an actual light source
+drawn into the scene, with a granulated photosphere, limb darkening, a
+chromosphere at the edge, a corona, and the diffraction spikes a lens gives any
+point source. Its colour is its temperature, which is how stellar colour really
+works. It sets the colour split in the nebula, the hot spot on the ridge, the
+anamorphic streak, the lens ghosts, and the amount of chromatic fringing —
+which grows off-axis and with speed, like real glass.
+
+It is drawn before the horizon, so it can set behind the ridge, and the
+headings sit above the canvas, so it passes behind the type. The native cursor
+is hidden while it is on screen — but only then: with no WebGL, no fine
+pointer, or reduced motion there is nothing standing in for it, and taking the
+arrow away would just leave the page feeling broken.
 
 **Headings are opaque.** Every heading — the wordmark and all four plate
 headings — is rasterised once into a single atlas texture. Each frame the

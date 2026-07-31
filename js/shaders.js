@@ -243,12 +243,42 @@ window.VA_SHADERS = (function () {
     /* Nearest layer is out of focus. */
     '  col += ICE * bokeh(fsp + pan * 0.09, t) * BOKEH_BRIGHT;',
 
-    /* --- the light source itself -------------------------------------- */
-    /* Only a small hot core here. The volume around it is drawn by the ray
-       pass, which is the one that knows what the text is blocking. */
-    '  float lightDist = length((uv - uLight) * vec2(aspect, 1.0));',
-    '  float beam = exp(-lightDist * 2.9);',
-    '  col += mix(uLightCol, vec3(1.0), 0.45) * pow(beam, 2.2) * BEAM_BRIGHT;',
+    /* --- the sun -------------------------------------------------------- */
+    /* The light source is a star, drawn here rather than left abstract: a
+       granulated photosphere, a hot limb, a corona, and the diffraction
+       spikes a lens gives any point source. It is drawn before the ridge, so
+       it can set behind the horizon, and the DOM headings sit above the
+       canvas, so it passes behind the type as well. */
+    '  vec2 sd = (uv - uLight) * vec2(aspect, 1.0);',
+    '  float sr = length(sd);',
+    '  float beam = exp(-sr * 2.9);',
+    '  float sunAng = atan(sd.y, sd.x);',
+
+    /* Convection cells, drifting slowly across the face. */
+    '  float gran = fbm3(sd * (9.0 / SUN_RADIUS) + vec2(t * 0.08, -t * 0.05));',
+
+    /* A real limb is not a clean circle — this is what makes it read as a
+       body with an atmosphere rather than a drawn dot. */
+    '  float edgeN = fbm3(vec2(sunAng * 1.9, t * 0.16));',
+    '  float R = SUN_RADIUS * (1.0 + 0.09 * (edgeN - 0.5));',
+
+    /* Limb darkening: you see deeper, hotter gas at the centre of the disc
+       and cooler gas obliquely at the edge. */
+    '  float q = min(sr / R, 1.0);',
+    '  float mu = sqrt(max(1.0 - q * q, 0.0));',
+    '  float disc = smoothstep(R, R * 0.955, sr);',
+    '  vec3 hot = mix(uLightCol, vec3(1.0), 0.72);',
+    '  vec3 surface = hot * (1.0 - SUN_GRAIN * 0.5 + SUN_GRAIN * gran) * (0.35 + 0.85 * mu);',
+    '  col = mix(col, surface * SUN_BRIGHT, disc);',
+
+    /* Chromosphere: the thin bright line right at the edge. */
+    '  col += mix(uLightCol, vec3(1.0), 0.25) * exp(-abs(sr - R) / (R * 0.11)) * 0.5;',
+
+    '  float outside = max(sr - R, 0.0);',
+    '  float corona = exp(-outside / (R * 3.0)) * (1.0 - disc * 0.8);',
+    '  float spikes = pow(abs(cos(sunAng * 3.0 + t * 0.04)), 24.0)',
+    '              * exp(-outside / (R * 18.0)) * (1.0 - disc);',
+    '  col += uLightCol * (corona * SUN_CORONA + spikes * SUN_SPIKES);',
 
     /* Motes only catch the light when they are in it. */
     '  float mote = dust(sp * 1.0 + pan * 0.05, t);',
