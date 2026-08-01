@@ -1,0 +1,40 @@
+{
+  "name": "vast-array",
+  "version": "0.1.0",
+  "description": "A WebGL sky that takes its light from the cursor, and headings that cast real shadows into it.",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./dist/vast-array.mjs",
+    "./iife": "./dist/vast-array.js",
+    "./css": "./css/vast-array.css",
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/vast-array.mjs",
+  "module": "./dist/vast-array.mjs",
+  "files": [
+    "dist",
+    "css/vast-array.css",
+    "src",
+    "README.md"
+  ],
+  "sideEffects": [
+    "./dist/vast-array.js",
+    "./dist/vast-array.min.js",
+    "*.css"
+  ],
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "keywords": [
+    "webgl",
+    "shader",
+    "nebula",
+    "background",
+    "godrays",
+    "volumetric-light"
+  ],
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

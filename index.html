@@ -9,7 +9,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Saira:wght@200;300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/font.css">
-<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/vast-array.css">
+<link rel="stylesheet" href="css/demo.css">
 </head>
 <body>
 
@@ -195,9 +196,21 @@
 
 </main>
 
-<script src="js/config.js"></script>
-<script src="js/shaders.js"></script>
-<script src="js/sky.js"></script>
-<script src="js/main.js"></script>
+<script src="dist/vast-array.js"></script>
+<script>
+  /* This page keeps its own class names rather than the engine's defaults,
+     which is the whole point of the selector options. Everything else — the
+     palette, the exposure, the numbers behind the sky — is read from the
+     markup above and from the built-in defaults. */
+  VastArray.mount({
+    canvas: '#sky',
+    selectors: {
+      heading: '.wordmark, .head',
+      section: '.plate',
+      reveal:  '.reveal',
+      hero:    '.wordmark'
+    }
+  });
+</script>
 </body>
 </html>

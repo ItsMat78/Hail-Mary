@@ -1,20 +1,15 @@
-/* VAST ARRAY — a field guide to light
-   Palette and exposure come from JS as custom properties on :root, so
-   everything below stays in step with the sky behind it. */
+/* VAST ARRAY — the demo page.
+   Everything here is about how this particular page looks. The engine's own
+   stylesheet is css/vast-array.css, and it is the one that has to ship
+   alongside the script; this file does not.
+
+   --c1/--c2/--c3/--accent/--fringe are declared there and rewritten by JS
+   per section, so the type below stays in step with the sky behind it. */
 
 :root {
-  /* Sampled from the poster. JS overwrites --c1/--c2/--c3/--accent per
-     section; these are the values frame one starts from. */
   --void:   #05070F;
-  --c1:     196 42 75;    /* ember crimson */
-  --c2:     255 158 82;   /* rim amber     */
-  --c3:      49 217 196;  /* ion teal      */
-  --accent: 207 231 255;  /* flare ice     */
-  --ice:    207 231 255;
-
-  /* Horizontal colour-fringe offset in px, written by main.js. Stepped
-     rather than continuous so the headline glow does not repaint 60x/sec. */
-  --fringe: 0;
+  --va-void: var(--void);   /* what the no-WebGL sky falls back to */
+  --ice:    207 231 255;    /* flare ice */
 
   --font-display: 'Hail Mary Sans', 'Michroma', 'Bahnschrift', ui-sans-serif, system-ui, sans-serif;
   --font-body: 'Saira', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
@@ -51,49 +46,6 @@ body {
 :focus-visible {
   outline: 2px solid rgb(var(--accent));
   outline-offset: 4px;
-}
-
-/* The cursor is the star, so the arrow would be a second one. Set by JS only
-   when the sun is really there to replace it — `cursor` inherits, so putting
-   it on body covers the text I-beam too. */
-.has-sun body { cursor: none; }
-
-/* ------------------------------------------------------------------ sky */
-
-#sky {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-  z-index: -3;
-}
-
-/* If WebGL is missing the page still has to be a sky, not a black box.
-   Same three colours, same scroll-driven palette, no shader. */
-.no-webgl #sky { display: none; }
-
-.no-webgl body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -3;
-  background:
-    radial-gradient(65% 50% at 80% 16%, rgb(var(--c3) / 0.42), transparent 68%),
-    radial-gradient(70% 62% at 10% 40%, rgb(var(--c1) / 0.40), transparent 70%),
-    radial-gradient(90% 45% at 14% 104%, rgb(var(--c2) / 0.34), transparent 62%),
-    var(--void);
-}
-
-.no-webgl body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -2;
-  pointer-events: none;
-  opacity: 0.16;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* --------------------------------------------------------------- plates */
@@ -361,31 +313,31 @@ body {
 
 /* --------------------------------------------------------------- motion */
 
-/* Scoped to .is-ready, which JS sets before the observer runs. Without the
+/* Scoped to .va-ready, which JS sets before the observer runs. Without the
    scope, anything that stopped the script — an error, a blocked file, no JS
    at all — would leave every word on the page at opacity 0. */
-.is-ready .reveal {
+.va-ready .reveal {
   opacity: 0;
   transform: translateY(1.6rem);
   transition: opacity 1s cubic-bezier(0.22, 0.75, 0.3, 1),
               transform 1s cubic-bezier(0.22, 0.75, 0.3, 1);
 }
 
-.is-ready .reveal.is-visible {
+.va-ready .reveal.va-visible {
   opacity: 1;
   transform: none;
 }
 
-.meta.is-visible { transition-delay: 0.05s; }
-.head.is-visible { transition-delay: 0.14s; }
-.prose.is-visible { transition-delay: 0.24s; }
-.card.is-visible { transition-delay: 0.34s; }
+.meta.va-visible { transition-delay: 0.05s; }
+.head.va-visible { transition-delay: 0.14s; }
+.prose.va-visible { transition-delay: 0.24s; }
+.card.va-visible { transition-delay: 0.34s; }
 
 /* The hero resolves like a lens pulling focus. One orchestrated moment,
    not a scattering of effects. */
-.is-ready .wordmark.reveal { transform: none; transition: none; }
+.va-ready .wordmark.reveal { transform: none; transition: none; }
 
-.is-ready .wordmark.reveal.is-visible {
+.va-ready .wordmark.reveal.va-visible {
   opacity: 1;
   will-change: filter, opacity, transform;
   animation: focus-pull 1.5s cubic-bezier(0.16, 0.84, 0.28, 1) both;
@@ -394,7 +346,7 @@ body {
 /* Dropped by JS once the animation ends — holding a layer this large open
    costs memory for no benefit after it has settled. Needs to out-specify the
    rule above that set it, hence the full chain. */
-.is-ready .wordmark.reveal.is-visible.is-settled { will-change: auto; }
+.va-ready .wordmark.reveal.va-visible.va-settled { will-change: auto; }
 
 @keyframes focus-pull {
   from { opacity: 0; filter: blur(10px); transform: scale(1.045); }
@@ -402,8 +354,8 @@ body {
   to   { opacity: 1; filter: blur(0); transform: none; }
 }
 
-.hero__lede.is-visible { transition-delay: 0.9s; }
-.cue.is-visible { transition-delay: 1.15s; }
+.hero__lede.va-visible { transition-delay: 0.9s; }
+.cue.va-visible { transition-delay: 1.15s; }
 
 /* ------------------------------------------------------------ responsive */
 
@@ -429,8 +381,8 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .is-ready .reveal,
-  .is-ready .reveal.is-visible {
+  .va-ready .reveal,
+  .va-ready .reveal.va-visible {
     opacity: 1;
     transform: none;
     transition: none;

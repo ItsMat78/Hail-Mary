@@ -1,16 +1,20 @@
 /* VAST ARRAY — every number worth touching, in one place.
-   Edit a value, save, reload. Nothing here needs a build step.
 
-   The `glsl` and `glslInt` blocks are compiled into the shaders as #defines at
-   startup, so those take a reload. Everything else is read live by the
-   animation loop, so it takes effect on the next frame.
+   These are the defaults. Override any subset by passing `config` to mount();
+   the object below is deep-merged under yours, so you only name what you are
+   changing.
 
-   Colours that belong to the page rather than the sky (section palettes,
-   type, borders) live elsewhere: per-section colours are data-c1/c2/c3 and
-   data-accent attributes on each <section> in index.html, and the base tokens
-   are custom properties at the top of css/style.css. */
+   The `glsl` and `glslInt` blocks are compiled into the shaders as #defines
+   when the renderer is created, so changing them through setConfig() rebuilds
+   the programs. Everything else is read live by the animation loop and takes
+   effect on the next frame.
 
-window.VA_CONFIG = {
+   Colours that belong to the page rather than the sky are not here:
+   per-section colours are data-c1/c2/c3 and data-accent attributes on the
+   elements `selectors.section` matches, and the type tokens are custom
+   properties in your own stylesheet. */
+
+export default {
 
   /* ------------------------------------------------------------ the star */
   /* The sun under the cursor takes its colour from these four, blended by
@@ -24,7 +28,7 @@ window.VA_CONFIG = {
   },
 
   /* -------------------------------------------------------------- the sky */
-  /* Compiled into the shaders as float #defines. Reload to apply. */
+  /* Compiled into the shaders as float #defines. */
   glsl: {
     /* Nebula. CUT is the single most useful dial in this file: it is the noise
        value below which there is no cloud at all. */
@@ -114,7 +118,7 @@ window.VA_CONFIG = {
     motionEase:     7.0,    // how fast the movement streak builds and fades away
     vignetteBase:   0.54,   // corner darkening at the top of the page
     vignetteScroll: 0.14,   // extra corner darkening by the bottom of the page
-    grainBase:      0.00,  // sensor noise; it is weighted toward the shadows
+    grainBase:      0.00,   // sensor noise; it is weighted toward the shadows
     fringePx:       3.0     // colour fringing on the type itself, in pixels
   },
 
@@ -122,7 +126,7 @@ window.VA_CONFIG = {
   /* If it runs badly, lower these in order: renderScale, then maxDpr, then
      glslInt.RAY_STEPS. The page also steps itself down and logs when it does. */
   quality: {
-    renderScale:   0.9,   // sky buffer size relative to the screen
+    renderScale:   0.9,    // sky buffer size relative to the screen
     maxDpr:        1.5,    // ceiling on that buffer's pixel ratio. The nebula is soft, so
                            // rendering above ~1x CSS pixels buys nothing on a hidpi screen
     displayDpr:    1.5,    // ceiling on the final composite's pixel ratio

@@ -1,0 +1,73 @@
+/* VAST ARRAY — engine stylesheet.
+
+   This is everything the renderer needs and nothing about how a page looks.
+   Load it, then style your own type against the custom properties below.
+
+   Written by JS on the element you pass as `root` (default <html>):
+
+     --c1 --c2 --c3   the three cloud masses of the section in view, as
+                      space-separated sRGB channels, so use them as
+                      rgb(var(--c1) / 0.4)
+     --accent         that section's accent, same format
+     --fringe         signed chromatic-fringe offset, in px, stepped
+
+   Classes written by JS:
+
+     .va-ready        on root, once mount() has run. Scope any opacity-0
+                      reveal styling to this, or a page whose script failed
+                      is a page of invisible text.
+     .va-has-sun      on root, only when a star is really following the
+                      pointer: WebGL up, fine pointer, motion allowed.
+     .va-no-webgl     on root, when there is no context, the context was
+                      lost, or the quality ladder gave up.
+     .va-visible      on each reveal element as it enters view.
+     .va-settled      on the hero element once its intro animation ends. */
+
+:root {
+  /* Frame-one values, before the first section is measured. */
+  --c1:     196 42 75;
+  --c2:     255 158 82;
+  --c3:      49 217 196;
+  --accent: 207 231 255;
+  --fringe: 0;
+
+  /* The colour the sky falls back to with no clouds over it. */
+  --va-void: #05070F;
+}
+
+/* The canvas. Fixed and full-bleed by default, which is the common case;
+   override `position` and the insets to embed it in a single band.
+
+   z-index -3 puts it behind page content without needing a stacking context
+   on every wrapper — but it also means the canvas is behind the body
+   background, so `body` (and anything else over it) has to be transparent or
+   there will be nothing to see. */
+.va-sky {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: -3;
+}
+
+/* The cursor is the star, so the arrow would be a second one. The class is
+   only set when a sun is really there to replace it. `cursor` inherits, so
+   putting it on body covers the text I-beam too. */
+.va-has-sun body { cursor: none; }
+
+/* No WebGL: the page still has to be a sky, not a black box. Same three
+   colours, same scroll-driven palette, no shader.
+
+   Painted onto the canvas element rather than a body pseudo-element, so it
+   lands wherever the canvas is — full-bleed or embedded — and needs no
+   second z-index to reason about. */
+.va-no-webgl .va-sky {
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.16'/%3E%3C/svg%3E"),
+    radial-gradient(65% 50% at 80% 16%, rgb(var(--c3) / 0.42), transparent 68%),
+    radial-gradient(70% 62% at 10% 40%, rgb(var(--c1) / 0.40), transparent 70%),
+    radial-gradient(90% 45% at 14% 104%, rgb(var(--c2) / 0.34), transparent 62%),
+    linear-gradient(var(--va-void), var(--va-void));
+  background-blend-mode: overlay, normal, normal, normal, normal;
+}
