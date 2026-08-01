@@ -135,26 +135,137 @@ script. `css/demo.css` is this page and does not.
 
 ## Putting it on an existing site
 
-Four things bite, in roughly this order.
+### Getting the code in
 
-**Backgrounds.** The canvas is `position: fixed; z-index: -3`, so it only works
-if `body` and every wrapper above it are transparent. An opaque page background
-gives you a black box. This is the one that catches everyone.
+**Copy two files.** No npm, works anywhere:
 
-**Scroll model.** Pass `scroller` if your content scrolls inside a container
-rather than the window. Section positions, the palette probe and the occluder
-placement are all expressed in whichever coordinate space that is.
+```
+dist/vast-array.min.js  →  your-repo/static/vendor/
+css/vast-array.css      →  your-repo/static/vendor/
+```
 
-**Dynamic content.** Call `remeasure()`. See above.
+**Install from git.** `private: true` blocks `npm publish`, not this:
 
-**The font.** The hollow **A** is the typeface, not an SVG substitution — the
-headings are plain text. `css/font.css` embeds *Hail Mary Sans* as a base64
+```bash
+npm i github:ItsMat78/Hail-Mary#packaging
+```
+
+`dist/` is committed, so there is no build step on the consumer's side. Pin a
+tag rather than a branch once there is one to pin.
+
+**Local path**, while both sides are still moving:
+
+```bash
+npm i ../HailMary     # symlinks; edits show up without reinstalling
+```
+
+Only `dist/`, `css/vast-array.css`, `src/` and this README are packed. The
+demo page, `demo.css` and the font stay behind.
+
+### Wiring it up
+
+**1. The stylesheet, and transparent backgrounds.** This is the step that
+actually breaks people:
+
+```html
+<link rel="stylesheet" href="/vendor/vast-array.css">
+```
+
+```css
+/* the canvas sits at z-index -3; anything opaque above it hides the sky */
+body, #app, .layout { background: transparent; }
+```
+
+If your site has a background colour it has to move onto a specific element
+rather than `body`. Set `--va-void` to whatever that base colour was — it is
+what the no-WebGL fallback paints.
+
+**2. A canvas** — or let it make one:
+
+```html
+<canvas id="sky" aria-hidden="true"></canvas>
+<script src="/vendor/vast-array.min.js"></script>
+<script>
+  VastArray.mount({
+    canvas: '#sky',
+    selectors: { heading: 'h1, h2', section: '[data-c1]' }
+  });
+</script>
+```
+
+**3. Give your sections palettes.** Nothing happens without at least one — no
+crossfade, no exposure:
+
+```html
+<section data-c1="#E03A5E" data-c2="#FF7A4D" data-c3="#8E3BD6"
+         data-accent="#FF6A86" data-exposure="0.92"> … </section>
+```
+
+**4. Consume the variables** the engine writes, or the type will not track the
+sky behind it:
+
+```css
+h2 { color: rgb(var(--accent)); }
+.card { border-color: rgb(var(--accent) / 0.28); }
+```
+
+### In a framework
+
+Mount in an effect, destroy in cleanup, `remeasure()` on route change:
+
+```jsx
+import { useEffect, useRef } from 'react';
+import { mount } from 'vast-array';
+import 'vast-array/css';
+
+export function Sky() {
+  const ref = useRef(null);
+  useEffect(() => {
+    const sky = mount({
+      canvas: ref.current,
+      selectors: { heading: '.heading', section: '[data-c1]' }
+    });
+    return () => sky.destroy();
+  }, []);
+  return <canvas ref={ref} aria-hidden="true" />;
+}
+```
+
+Importing the module during SSR is safe — nothing at module scope touches the
+DOM unguarded, and the bundle imports cleanly in bare Node. Only `mount()`
+needs a browser, so keep it inside the effect.
+
+Route changes need `remeasure()`. Hold the handle in a ref and call it once the
+new page has painted, or the light keeps stopping where the old headings were.
+
+### What will bite, in order
+
+**1. An opaque wrapper.** Symptom: a black box and no error. Walk up from the
+canvas until you find the element carrying a background.
+
+**2. Content in a scroll container.** Pass `scroller`, or the palette and the
+shadows both go dead — section positions, the palette probe and the occluder
+placement are all expressed in whichever coordinate space that option names.
+
+**3. Anything that moves a heading after mount.** Accordions, lazy images above
+the fold, route changes. `remeasure()`.
+
+**4. The font.** The hollow **A** is the typeface, not an SVG substitution —
+the headings are plain text. `css/font.css` embeds *Hail Mary Sans* as a base64
 data URI rather than linking a file, because Chrome treats a font fetched from
 a `file://` page as cross-origin and refuses it; inlining is what keeps the
-page working when opened by double-click. Note the face advances about
-**1.4em per character**, which is very wide, and every display size in
-`demo.css` is fitted to that. If you swap it, expect to refit the `clamp()`
-values on `.wordmark`, `.head`, `.eyebrow`, `.card__figure` and `.foot__mark`.
+page working when opened by double-click. Do not copy that file into a
+published project without settling the licence first. Your own display face is
+fine — just refit the sizes, because this one advances about **1.4em per
+character**, which is very wide, and every display size in `demo.css` is tuned
+to it: `.wordmark`, `.head`, `.eyebrow`, `.card__figure`, `.foot__mark`.
+
+### One band instead of a whole page
+
+If the sky only belongs behind a hero rather than the entire site, override
+`.va-sky` to `position: absolute` inside that section and pass the section as
+`scroller`. That avoids fighting the existing page's stacking and scroll
+behaviour at all, and it is a tested path rather than an improvised one.
 
 ## How the pieces work
 
